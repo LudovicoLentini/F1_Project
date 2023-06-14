@@ -1,0 +1,976 @@
+---
+title: "F1 Prediction"
+author: "G13 - Alberico Emanuele, Ludovico Lentini, Camilla Lombardi, Matteo Saba"
+date: "7/16/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The goal of our project is to predict the results in a Formula One race. In particular, we are predicting podiums, positions between 4 and 10, and between 10 and 20. 
+Formula One continues evolving very quickly, and 
+
+```{r warning=FALSE, results='hide'}
+library(readr)
+setwd("C:/Users/aeman/OneDrive/Desktop/F1 2")
+DB_FINAL <- read_csv("DB_FINAL.csv")
+dati<-DB_FINAL
+```
+
+
+### Data manipulation
+The first thing that we observe is that many teams changed their names over the period considered. So, in this part we replace the old names with the current ones.
+```{r warning=FALSE, results='hide'}
+dati$Team[dati$Team=="Sauber"]<- "Alfa Romeo"
+dati$Team[dati$Team=="Toro Rosso"]<- "AlphaTauri"
+dati$Team[dati$Team=="Renault" | dati$Team=="Lotus F1"]<- "Alpine F1 Team"
+dati$Team[dati$Team=="Force India" | dati$Team=="Racing Point"]<- "Aston Martin"
+dati$Team[dati$Team=="Manor Marussia"]<- "Marussia"
+```
+Going on, we believe that there could be some custom variables which could be useful in the prediction. So we decided to implement the ratio of DNF (Not finished races) and the ratio of wins per driver and per team. Since our analysis is limited tot he year 2014-2021, we are just considering the drivers and the teams that raced in this timeframe. 
+
+To create the DNF variable per driver we considered the number of races that the driver didn't finish over the races to which he partecipated. Of course, since we are trying to predict the podiums for each race, we are updating this variable in each race.
+Another assumption on which we based our custom variable is that we are just considering the DNF of the races between 2014 and 2021 without considering the previous races. This decision was made because in 2014 a new engine was introduced and we didn't consider correct to add also precious DNF. 
+```{r}
+#Creation of the binary variable DNF(=1 if a driver had a DNF and 0 otherwise)
+dati$DNF<- list(0)
+DNF<-c(3,4,20,29,31,41,68,73,81,97,82,104,107,130,137)
+for (i in DNF) {
+  dati$DNF[dati$statusId==i]<- 1
+}
+dati$DNF<-as.numeric(dati$DNF)
+
+#Creation of the variable TASSO_DNF which is the percentage of DNF of each driver.
+#IN CIASCUNA GARA
+cumulata_gare_2014_2021<- data.frame(table(dati$Driver))
+cumulata_gare_2014_2021$Freq<-0
+
+cumulata_DNF_2014_2021<- data.frame(table(dati$Driver))
+cumulata_DNF_2014_2021$Freq<-0
+
+tasso_DNF<-list()
+for (i in 1:nrow(dati)) {
+  perc<- (cumulata_DNF_2014_2021$Freq[cumulata_DNF_2014_2021$Var1==dati$Driver[i]]/cumulata_gare_2014_2021$Freq[cumulata_gare_2014_2021$Var1==dati$Driver[i]])*100
+  tasso_DNF<-append(tasso_DNF,perc)
+  cumulata_gare_2014_2021$Freq[cumulata_gare_2014_2021$Var1==dati$Driver[i]]<-cumulata_gare_2014_2021$Freq[cumulata_gare_2014_2021$Var1==dati$Driver[i]]+1
+  if(dati$DNF[i]==1)
+    cumulata_DNF_2014_2021$Freq[cumulata_DNF_2014_2021$Var1==dati$Driver[i]]<-cumulata_DNF_2014_2021$Freq[cumulata_DNF_2014_2021$Var1==dati$Driver[i]]+1
+}
+
+dati$tasso_DNF<-tasso_DNF
+dati$tasso_DNF[dati$tasso_DNF=="NaN"]<-0
+
+```
+
+We then created the percentage of wins per each pilot. In this case we believed that the number of wins per driver had to include also the races before 2014, since this makes the difference in drivers. More experienced drivers may be more likely to win, and younger ones may not have many experience.
+Since our analysis is limited tot he year 2014-2021, we are 
+
+```{r warning=FALSE, results='hide'}
+#CARICO FILE DEL NUMERO DI GARE VINTE DA OGNI PILOTA FINO AL 2014
+cumulata_vittorie<- read_csv("Vittorie per pilota prima del 2014.csv")
+t<-data.frame(table(dati$Driver))
+for (i in cumulata_vittorie$Driver) {
+  t$Freq[t$Var1==i]<- cumulata_vittorie$`count(vittorie_pilota)`[cumulata_vittorie$Driver==i]
+}
+t$Freq[t$Var1!= "Alonso" & t$Var1!= "Hamilton" & t$Var1!= "Räikkönen" & t$Var1!= "Vettel" & t$Var1!= "Ricciardo" & t$Var1!= "Bottas" & t$Var1!= "Pérez" & t$Var1!= "Kubica" & t$Var1!= "Massa" & t$Var1!= "Button" & t$Var1!= "Rosberg" & t$Var1!= "Maldonado"]<-0
+cumulata_vittorie_2014<- t
+
+#CARICO IL FILE DEL NUMERO DI GARE CORSE DA OGNI PILOTA FINO AL 2014
+t<-data.frame(table(dati$Driver))
+cumulata_gare_2014 <- read_csv("GP disputati per pilota prima del 2014.csv")
+for (i in cumulata_gare_2014$Driver) {
+  t$Freq[t$Var1==i]<- cumulata_gare_2014$`count(raceId)`[cumulata_gare_2014$Driver==i]
+}
+t$Freq[t$Var1!= "Alonso" & t$Var1!= "Hamilton" & t$Var1!= "Räikkönen" & t$Var1!= "Vettel" & t$Var1!= "Ricciardo" & t$Var1!= "Bottas" & t$Var1!= "Pérez" & t$Var1!= "Kubica" & t$Var1!= "Massa" & t$Var1!= "Button" & t$Var1!= "Rosberg" & t$Var1!= "Maldonado" & t$Var1!= "Sutil" & t$Var1!= "Hülkenberg" & t$Var1!= "Kobayashi" & t$Var1!= "Grosjean" & t$Var1!= "Gutiérrez" & t$Var1!= "Vergne" & t$Var1!= "Chilton" & t$Var1!= "Bianchi" & t$Var1!= "di Resta" ]<-0
+cumulata_gare_2014<-t
+
+#CREO LA VARIABILE TASSO_WIN CHE INDICA LA PERCENTUALE DI VITTORIA
+#DI OGNI PILOTA IN CIASCUNA CORSA
+tasso_win<-list()
+for (i in 1:nrow(dati)) {
+  perc<- (cumulata_vittorie_2014$Freq[cumulata_vittorie_2014$Var1==dati$Driver[i]]/cumulata_gare_2014$Freq[cumulata_gare_2014$Var1==dati$Driver[i]])*100
+  tasso_win<-append(tasso_win,perc)
+  cumulata_gare_2014$Freq[cumulata_gare_2014$Var1==dati$Driver[i]]<-cumulata_gare_2014$Freq[cumulata_gare_2014$Var1==dati$Driver[i]]+1
+  if(dati$driver_wins[i]==1)
+    cumulata_vittorie_2014$Freq[cumulata_vittorie_2014$Var1==dati$Driver[i]]<- cumulata_vittorie_2014$Freq[cumulata_vittorie_2014$Var1==dati$Driver[i]]+1
+}
+
+dati$tasso_win<-tasso_win
+dati$tasso_win[dati$tasso_win=="NaN"]<-0
+
+```
+
+### Exploration Data Analysis
+```{r, echo = FALSE, results='hide'}
+#PILOTI
+a=max(dati$driver_points[dati$year=='2014'])
+a1=max(dati$driver_points[dati$year=='2015'])
+b=max(dati$driver_points[dati$year=='2016'])
+c=max(dati$driver_points[dati$year=='2017'])
+d=max(dati$driver_points[dati$year=='2018'])
+e=max(dati$driver_points[dati$year=='2019'])
+f=max(dati$driver_points[dati$year=='2020'])
+g=max(dati$driver_points[dati$year=='2021'])
+
+dati$Driver[dati$driver_points==a]
+dati$Driver[dati$driver_points==a1]
+dati$Driver[dati$driver_points==b]
+dati$Driver[dati$driver_points==c]
+dati$Driver[dati$driver_points==d]
+dati$Driver[dati$driver_points==e]
+dati$Driver[dati$driver_points==f]
+dati$Driver[dati$driver_points==g]
+
+x=c(a,a1,b,c,d,e,f,g)
+
+barplot(x,names.arg = c("Hamilton","Hamilton","Rosberg","Hamilton","Hamilton","Hamilton","Hamilton","Verstappen"),
+        xlab="Drivers", ylab="Points",cex.lab = 1.2,main = "Drivers World Championship in past years",cex.names = 0.7,col = c("aquamarine3","aquamarine3","darkgray","aquamarine3","aquamarine3","aquamarine3","aquamarine3","blue"))
+leg.txta0="2014"
+leg.txta="2015"
+leg.txta1="2016"
+leg.txta2="2017"
+leg.txta3="2018"
+leg.txta4="2019"
+leg.txta5="2020"
+leg.txta6="2021"
+legend(-0.1,300,leg.txta0, bty="n",horiz = TRUE)
+legend(1.1,300,leg.txta, bty = "n", horiz = TRUE)
+legend(2.25,300,leg.txta1, bty="n",horiz = TRUE)
+legend(3.52,300,leg.txta2, bty="n",horiz = TRUE)
+legend(4.68,300,leg.txta3, bty="n",horiz = TRUE)
+legend(5.9,300,leg.txta4, bty="n",horiz = TRUE)
+legend(7.1,300,leg.txta5, bty="n",horiz = TRUE)
+legend(8.3,300,leg.txta6, bty="n",horiz = TRUE)
+
+png("C:/Users/aeman/OneDrive/Desktop/F1 2/driverswin1.png", units = "px", width = 1200, height = 700, pointsize = 24, bg = "white") # predispone nome e formato del file
+barplot(x,names.arg = c("Hamilton","Hamilton","Rosberg","Hamilton","Hamilton","Hamilton","Hamilton","Verstappen"),
+        xlab="Drivers", ylab="Points",cex.lab = 1.2,main = "Drivers World Championship in past years",cex.names = 0.7,col = c("aquamarine3","aquamarine3","darkgray","aquamarine3","aquamarine3","aquamarine3","aquamarine3","blue"))
+leg.txta0="2014"
+leg.txta="2015"
+leg.txta1="2016"
+leg.txta2="2017"
+leg.txta3="2018"
+leg.txta4="2019"
+leg.txta5="2020"
+leg.txta6="2021"
+legend(0,300,leg.txta0, bty="n",horiz = TRUE)
+legend(1.2,300,leg.txta, bty = "n", horiz = TRUE)
+legend(2.35,300,leg.txta1, bty="n",horiz = TRUE)
+legend(3.52,300,leg.txta2, bty="n",horiz = TRUE)
+legend(4.78,300,leg.txta3, bty="n",horiz = TRUE)
+legend(6,300,leg.txta4, bty="n",horiz = TRUE)
+legend(7.2,300,leg.txta5, bty="n",horiz = TRUE)
+legend(8.4,300,leg.txta6, bty="n",horiz = TRUE)
+dev.off() # salva il file
+```
+
+```{r, echo=FALSE,results='hide'}
+#COSTRUTTORI
+
+h=max(dati$team_points[dati$year=='2014'])
+h1=max(dati$team_points[dati$year=='2015'])
+i=max(dati$team_points[dati$year=='2016'])
+l=max(dati$team_points[dati$year=='2017'])
+m=max(dati$team_points[dati$year=='2018'])
+n=max(dati$team_points[dati$year=='2019'])
+o=max(dati$team_points[dati$year=='2020'])
+p=max(dati$team_points[dati$year=='2021'])
+
+y=c(h,h1,i,l,m,n,o,p)
+
+dati$Team[dati$team_points==h]
+dati$Team[dati$team_points==h1]
+dati$Team[dati$team_points==i]
+dati$Team[dati$team_points==l]
+dati$Team[dati$team_points==m]
+dati$Team[dati$team_points==n]
+dati$Team[dati$team_points==o]
+dati$Team[dati$team_points==p]
+
+
+barplot(y,names.arg = c("Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes"),
+        xlab="Constructor teams", ylab="Points",cex.lab = 1.2,main = "Constructor World Championship in past years",cex.names = 0.7,col = "aquamarine3")
+legend(-0.1,500,leg.txta0, bty="n",horiz = TRUE)
+legend(1.1,500,leg.txta, bty = "n", horiz = TRUE)
+legend(2.25,500,leg.txta1, bty="n",horiz = TRUE)
+legend(3.42,500,leg.txta2, bty="n",horiz = TRUE)
+legend(4.68,500,leg.txta3, bty="n",horiz = TRUE)
+legend(5.9,500,leg.txta4, bty="n",horiz = TRUE)
+legend(7.1,500,leg.txta5, bty="n",horiz = TRUE)
+legend(8.3,500,leg.txta6, bty="n",horiz = TRUE)
+
+png("C:/Users/aeman/OneDrive/Desktop/F1 2/constructorwin1.png", units = "px", width = 1200, height = 700, pointsize = 24, bg = "white") # predispone nome e formato del file
+barplot(y,names.arg = c("Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes","Mercedes"),
+        xlab="Constructor teams", ylab="Points",cex.lab = 1.2,main = "Constructor World Championship in past years",cex.names = 0.7,col = "aquamarine3")
+legend(0,500,leg.txta0, bty="n",horiz = TRUE)
+legend(1.2,500,leg.txta, bty = "n", horiz = TRUE)
+legend(2.35,500,leg.txta1, bty="n",horiz = TRUE)
+legend(3.52,500,leg.txta2, bty="n",horiz = TRUE)
+legend(4.78,500,leg.txta3, bty="n",horiz = TRUE)
+legend(6,500,leg.txta4, bty="n",horiz = TRUE)
+legend(7.2,500,leg.txta5, bty="n",horiz = TRUE)
+legend(8.4,500,leg.txta6, bty="n",horiz = TRUE)
+
+dev.off() # salva il file
+
+```
+
+```{r, echo=FALSE}
+#MEDIA PUNTI PER GARA DEI 3 TOP COSTRUTTORI NEGLI ANNI
+
+DB2014=subset(dati, year=='2014')
+
+m14=mean(DB2014$constructor_points[DB2014$Team=="Mercedes"])
+f14=mean(DB2014$constructor_points[DB2014$Team=="Ferrari"])
+r14=mean(DB2014$constructor_points[DB2014$Team=="Red Bull"])
+
+
+DB2015 = subset(dati,year=='2015')
+
+m15=mean(DB2015$constructor_points[DB2015$Team=="Mercedes"])
+f15=mean(DB2015$constructor_points[DB2015$Team=="Ferrari"])
+r15=mean(DB2015$constructor_points[DB2015$Team=="Red Bull"])
+
+DB2016 = subset(dati,year=='2016')
+
+m16=mean(DB2016$constructor_points[DB2016$Team=="Mercedes"])
+f16=mean(DB2016$constructor_points[DB2016$Team=="Ferrari"])
+r16=mean(DB2016$constructor_points[DB2016$Team=="Red Bull"])
+
+DB2017 = subset(dati,year=='2017')
+
+m17=mean(DB2017$constructor_points[DB2017$Team=="Mercedes"])
+f17=mean(DB2017$constructor_points[DB2017$Team=="Ferrari"])
+r17=mean(DB2017$constructor_points[DB2017$Team=="Red Bull"])
+
+DB2018 = subset(dati,year=='2018')
+m18=mean(DB2018$constructor_points[DB2018$Team=="Mercedes"])
+f18=mean(DB2018$constructor_points[DB2018$Team=="Ferrari"])
+r18=mean(DB2018$constructor_points[DB2018$Team=="Red Bull"])
+
+DB2019 = subset(dati,year=='2019')
+m19=mean(DB2019$constructor_points[DB2019$Team=="Mercedes"])
+f19=mean(DB2019$constructor_points[DB2019$Team=="Ferrari"])
+r19=mean(DB2019$constructor_points[DB2019$Team=="Red Bull"])
+
+DB2020 = subset(dati, year=='2020')
+m20=mean(DB2020$constructor_points[DB2020$Team=="Mercedes"])
+f20=mean(DB2020$constructor_points[DB2020$Team=="Ferrari"])
+r20=mean(DB2020$constructor_points[DB2020$Team=="Red Bull"])
+
+DB2021 = subset(dati,year=='2021')
+m21=mean(DB2021$constructor_points[DB2021$Team=="Mercedes"])
+f21=mean(DB2021$constructor_points[DB2021$Team=="Ferrari"])
+r21=mean(DB2021$constructor_points[DB2021$Team=="Red Bull"])
+
+M=c(m14,m15,m16,m17,m18,m19,m20,m21)
+FER=c(f14,f15,f16,f17,f18,f19,f20,f21)
+R=c(r14,r15,r16,r17,r18,r19,r20,r21)
+
+t=c(2014,2015,2016,2017,2018,2019,2020,2021)
+
+plot(t,M,type="l",col="aquamarine3",cex.axis=1.2,xaxt="n",ylim = c(5,40), ylab = "Average points per race",xlab = "year", main = "Average Top 3 Constructors' points",lwd=2) 
+axis(1,at=c(2014,2015,2016,2017,2018,2019,2020,2021,2022),labels = c("2014","2015","2016","2017","2018","2019","2020","2021","2022"),cex.axis=1.2)
+
+#par(new=TRUE)
+lines(t,FER,col="red",lwd=2)
+#par(new=TRUE)
+lines(t,R,col="blue",lwd=2)
+
+leg.txta =c("Mercedes","Ferrari","Redbull")
+legend(2014,35,leg.txta,lty=1, bty="n", col =c("aquamarine3","red","blue"), lwd = 6 ,seg.len = 0.3)
+
+png("C:/Users/aeman/OneDrive/Desktop/F1 2/constructoraverage1.png", units = "px", width = 1200, height = 700, pointsize = 24, bg = "white") # predispone nome e formato del file
+
+plot(t,M,type="l",col="aquamarine3",cex.axis=1.2,xaxt="n",ylim = c(5,40), ylab = "Average points per race",xlab = "year", main = "Average Top 3 Constructors' points",lwd=2) 
+axis(1,at=c(2014,2015,2016,2017,2018,2019,2020,2021,2022),labels = c("2014","2015","2016","2017","2018","2019","2020","2021","2022"),cex.axis=1.2)
+
+#par(new=TRUE)
+lines(t,FER,col="red",lwd=2)
+#par(new=TRUE)
+lines(t,R,col="blue",lwd=2)
+
+leg.txta =c("Mercedes","Ferrari","Redbull")
+legend(2014,35,leg.txta,lty=1, bty="n", col =c("aquamarine3","red","blue"), lwd = 6 ,seg.len = 0.3)
+
+dev.off()
+
+
+
+
+```
+
+
+```{r, ECHO = FALSE, results='hide'}
+
+png("C:/Users/aeman/OneDrive/Desktop/F1 2/ratio1.png", units = "px", width = 1600, height = 800, pointsize = 24, bg = "white") # predispone nome e formato del file
+#2014
+
+table(DB2014$Driver[DB2014$positionText==1])
+table(DB2014$Driver[DB2014$quali_position==1])
+table(DB2014$Driver[DB2014$DNF==1])
+
+w14=c(11,0,3,5)
+q14=c(7,1,0,11)
+v14=c(1,4,0,0)
+
+par(mfrow= c(2,4))
+
+barplot(rbind(w14,q14,v14),width=3 ,beside = T, names.arg = c("Hamilton","Massa","Ricciardo","Rosberg"), col = c("green","blue","red"), main="2014",
+        xlab="Drivers",cex.names = 0.5)
+leg.txta =c("Wins","Pole position","DNF")
+legend(8,11,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+
+#2015
+
+table(DB2015$Driver[DB2015$positionText==1])
+table(DB2015$Driver[DB2015$quali_position==1])
+table(DB2015$Driver[DB2015$DNF==1])
+
+w15=c(10,6,3)
+q15=c(11,7,1)
+v15=c(0,0,1)
+
+barplot(rbind(w15,q15,v15),width=3 ,beside = T, names.arg = c("Hamilton","Rosberg","Vettel"), col = c("green","blue","red"), main="2015",
+        xlab="Drivers",cex.names = 0.5)
+
+
+
+#2016
+
+table(DB2016$Driver[DB2016$positionText==1])
+table(DB2016$Driver[DB2016$quali_position==1])
+table(DB2016$Driver[DB2016$DNF==1])
+
+w16=c(10,1,9,1)
+q16=c(12,1,8,0)
+v16=c(1,0,1,1)
+
+barplot(rbind(w16,q16,v16),width=3 ,beside = T, names.arg = c("Hamilton","Ricciardo","Rosberg","Verstappen"), col = c("green","blue","red"), main="2016",
+        xlab="Drivers",cex.names = 0.5)
+
+#2017
+
+table(DB2017$Driver[DB2017$positionText==1])
+table(DB2017$Driver[DB2017$quali_position==1])
+table(DB2017$Driver[DB2017$DNF==1])
+
+w17=c(3,9,0,1,2,5)
+q17=c(4,11,1,0,0,4)
+v17=c(0,0,2,1,3,1)
+
+barplot(rbind(w17,q17,v17),width=6 ,beside = T, names.arg = c("Bottas","Hamilton","Raikkonen","Ricciardo","Verstappen","Vettel"), col = c("green","blue","red"), main="2017",
+        xlab="Drivers",cex.names = 0.5)
+
+
+
+#2018
+
+table(DB2018$Driver[DB2018$positionText==1])
+table(DB2018$Driver[DB2018$quali_position==1])
+table(DB2018$Driver[DB2018$DNF==1])
+
+w18=c(0,11,1,2,2,5)
+q18=c(2,11,1,2,0,5)
+v18=c(1,0,0,2,2,1)
+
+barplot(rbind(w18,q18,v18),width=6 ,beside = T, names.arg = c("Bottas","Hamilton","Raikkonen","Ricciardo","Verstappen","Vettel"), col = c("green","blue","red"), main="2018",
+        xlab="Drivers",cex.names = 0.5)
+
+
+#2019
+
+table(DB2019$Driver[DB2019$positionText==1])
+table(DB2019$Driver[DB2019$quali_position==1])
+table(DB2019$Driver[DB2019$DNF==1])
+
+w19=c(4,11,2,3,1)
+q19=c(5,5,6,3,2)
+v19=c(1,0,3,1,1)
+
+barplot(rbind(w19,q19,v19),width=5 ,beside = T, names.arg = c("Bottas","Hamilton","Leclerc","Verstappen","Vettel"), col = c("green","blue","red"), main="2019",
+        xlab="Drivers",cex.names = 0.5)
+
+
+#2020
+
+table(DB2020$Driver[DB2020$positionText==1])
+table(DB2020$Driver[DB2020$quali_position==1])
+table(DB2020$Driver[DB2020$DNF==1])
+
+w20=c(2,1,11,1,0,2)
+q20=c(4,0,10,0,1,1)
+v20=c(0,1,0,0,4,3)
+
+barplot(rbind(w20,q20,v20),width=6 ,beside = T, names.arg = c("Bottas","Gasly","Hamilton","Perez","Stroll","Verstappen"), col = c("green","blue","red"), main="2020",
+        xlab="Drivers",cex.names = 0.5)
+
+
+
+#2021
+
+table(DB2021$Driver[DB2021$positionText==1])
+table(DB2021$Driver[DB2021$quali_position==1])
+table(DB2021$Driver[DB2021$DNF==1])
+
+w21=c(1,8,0,0,1,10)
+q21=c(3,8,2,1,0,8)
+v21=c(3,1,1,1,2,3)
+
+barplot(rbind(w21,q21,v21),width=8 ,beside = T, names.arg = c("Bottas","Hamilton","Leclerc","Norris","Perez","Verstappen"), col = c("green","blue","red"), main="2021",
+        xlab="Drivers",cex.names = 0.5)
+
+dev.off()
+
+#GRAFICI PILOTI PER VITTORIE POLE E DNF
+table(DB2014$Driver[DB2014$positionText==1])
+table(DB2014$Driver[DB2014$quali_position==1])
+table(DB2014$Driver[DB2014$DNF==1])
+
+w14=c(11,0,3,5)
+q14=c(7,1,0,11)
+v14=c(1,4,0,0)
+
+par(mfrow= c(2,4))
+
+barplot(rbind(w14,q14,v14),width=3 ,beside = T, names.arg = c("Hamilton","Massa","Ricciardo","Rosberg"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2014",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(17,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+
+#2015
+
+table(DB2015$Driver[DB2015$positionText==1])
+table(DB2015$Driver[DB2015$quali_position==1])
+table(DB2015$Driver[DB2015$DNF==1])
+
+w15=c(10,6,3)
+q15=c(11,7,1)
+v15=c(0,0,1)
+
+barplot(rbind(w15,q15,v15),width=3 ,beside = T, names.arg = c("Hamilton","Rosberg","Vettel"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2015",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(27,11,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+#2016
+
+table(DB2016$Driver[DB2016$positionText==1])
+table(DB2016$Driver[DB2016$quali_position==1])
+table(DB2016$Driver[DB2016$DNF==1])
+
+w16=c(10,1,9,1)
+q16=c(12,1,8,0)
+v16=c(1,0,1,1)
+
+barplot(rbind(w16,q16,v16),width=3 ,beside = T, names.arg = c("Hamilton","Ricciardo","Rosberg","Verstappen"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2016",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(37,11,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+#2017
+
+table(DB2017$Driver[DB2017$positionText==1])
+table(DB2017$Driver[DB2017$quali_position==1])
+table(DB2017$Driver[DB2017$DNF==1])
+
+w17=c(3,9,0,1,2,5)
+q17=c(4,11,1,0,0,4)
+v17=c(0,0,2,1,3,1)
+
+barplot(rbind(w17,q17,v17),width=6 ,beside = T, names.arg = c("Bottas","Hamilton","Raikkonen","Ricciardo","Verstappen","Vettel"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2017",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(95,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+#2018
+
+table(DB2018$Driver[DB2018$positionText==1])
+table(DB2018$Driver[DB2018$quali_position==1])
+table(DB2018$Driver[DB2018$DNF==1])
+
+w18=c(0,11,1,2,2,5)
+q18=c(2,11,1,2,0,5)
+v18=c(1,0,0,2,2,1)
+
+barplot(rbind(w18,q18,v18),width=6 ,beside = T, names.arg = c("Bottas","Hamilton","Raikkonen","Ricciardo","Verstappen","Vettel"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2018",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(95,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+
+#2019
+
+table(DB2019$Driver[DB2019$positionText==1])
+table(DB2019$Driver[DB2019$quali_position==1])
+table(DB2019$Driver[DB2019$DNF==1])
+
+w19=c(4,11,2,3,1)
+q19=c(5,5,6,3,2)
+v19=c(1,0,3,1,1)
+
+barplot(rbind(w19,q19,v19),width=5 ,beside = T, names.arg = c("Bottas","Hamilton","Leclerc","Verstappen","Vettel"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2019",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(70,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+#2020
+
+table(DB2020$Driver[DB2020$positionText==1])
+table(DB2020$Driver[DB2020$quali_position==1])
+table(DB2020$Driver[DB2020$DNF==1])
+
+w20=c(2,1,11,1,0,2)
+q20=c(4,0,10,0,1,1)
+v20=c(0,1,0,0,4,3)
+
+barplot(rbind(w20,q20,v20),width=6 ,beside = T, names.arg = c("Bottas","Gasly","Hamilton","Perez","Stroll","Verstappen"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2020",
+        xlab="Drivers")
+leg.txta =c("Wins","Pole position","DNF")
+legend(100,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+#2021
+
+table(DB2021$Driver[DB2021$positionText==1])
+table(DB2021$Driver[DB2021$quali_position==1])
+table(DB2021$Driver[DB2021$DNF==1])
+
+w21=c(1,8,0,0,1,1,1,10)
+q21=c(3,8,2,1,0,0,0,8)
+v21=c(3,1,1,1,1,2,0,3)
+
+barplot(rbind(w21,q21,v21),width=8 ,beside = T, names.arg = c("Bottas","Hamilton","Leclerc","Norris","Ocon","Perez","Ricciardo","Verstappen"), col = c("green","blue","red"), main="Wins/pole position/DNF in 2021",
+        xlab="Drivers",cex.names = 0.7)
+leg.txta =c("Wins","Pole position","DNF")
+legend(97,10,leg.txta,lty=1, bty="n", col =c("green","blue","red"), lwd = 6 ,seg.len = 0.3)
+
+
+
+
+```
+
+```{r, ECHO = FALSE,results='hide'}
+#GRAFICI TEAMS PER PODI/POLE E STATUS
+
+#2014
+
+table(DB2014$Team[DB2014$positionText==1])
+table(DB2014$Team[DB2014$positionText==2])
+table(DB2014$Team[DB2014$positionText==3])
+
+table(DB2014$Team[DB2014$quali_position==1])
+
+f14=c(0,0,0,16,3,0)
+s14=c(0,1,1,13,1,0)
+t14=c(1,1,1,2,8,6)
+p14=c(0,0,0,18,0,1)
+
+barplot(rbind(f14,s14,t14,p14),width=6 ,beside = T, names.arg = c("Aston Martin","Ferrari","McLaren","Mercedes","Red Bull","Williams"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2014",
+        xlab="Constructor Teams")
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(17,18,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2015
+
+table(DB2015$Team[DB2015$positionText==1])
+table(DB2015$Team[DB2015$positionText==2])
+table(DB2015$Team[DB2015$positionText==3])
+
+table(DB2015$Team[DB2015$quali_position==1])
+
+f15=c(0,0,3,16,0,0)
+s15=c(0,0,4,13,2,0)
+t15=c(1,1,9,3,1,4)
+p15=c(0,0,1,19,0,0)
+
+
+barplot(rbind(f15,s15,t15,p15),width=6 ,beside = T, names.arg = c("Alpine Team","Aston Martin","Ferrari","Mercedes","Red Bull","Williams"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2015",
+        xlab="Constructor Teams",cex.names = 0.7)
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(17,19,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2016
+
+table(DB2016$Team[DB2016$positionText==1])
+table(DB2016$Team[DB2016$positionText==2])
+table(DB2016$Team[DB2016$positionText==3])
+
+table(DB2016$Team[DB2016$quali_position==1])
+
+f16=c(0,0,19,2,0)
+s16=c(0,5,8,8,0)
+t16=c(2,6,6,6,1)
+p16=c(0,0,20,1,0)
+
+barplot(rbind(f16,s16,t16,p16),width=5 ,beside = T, names.arg = c("Aston Martin","Ferrari","Mercedes","Red Bull","Williams"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2016",
+        xlab="Constructor Teams")
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(11,18,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2017
+
+table(DB2017$Team[DB2017$positionText==1])
+table(DB2017$Team[DB2017$positionText==2])
+table(DB2017$Team[DB2017$positionText==3])
+
+table(DB2017$Team[DB2017$quali_position==1])
+
+f17=c(5,12,3,0)
+s17=c(8,10,2,0)
+t17=c(7,4,8,1)
+p17=c(5,15,0,0)
+
+barplot(rbind(f17,s17,t17,p17),width=4 ,beside = T, names.arg = c("Ferrari","Mercedes","Red Bull","Williams"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2017",
+        xlab="Constructor Teams")
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(61,15,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2018
+
+table(DB2018$Team[DB2018$positionText==1])
+table(DB2018$Team[DB2018$positionText==2])
+table(DB2018$Team[DB2018$positionText==3])
+
+table(DB2018$Team[DB2018$quali_position==1])
+
+f18=c(0,6,11,4)
+s18=c(0,7,10,4)
+t18=c(1,11,4,5)
+p18=c(0,6,13,2)
+
+
+barplot(rbind(f18,s18,t18,p18),width=4 ,beside = T, names.arg = c("Aston Martin","Ferrari","Mercedes","Red Bull"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2018",
+        xlab="Constructor Teams")
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(5,12,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2019 
+
+table(DB2019$Team[DB2019$positionText==1])
+table(DB2019$Team[DB2019$positionText==2])
+table(DB2019$Team[DB2019$positionText==3])
+
+table(DB2019$Team[DB2019$quali_position==1])
+
+f19=c(0,3,0,15,3)
+s19=c(1,7,0,11,2)
+t19=c(1,9,1,6,4)
+p19=c(0,8,0,10,3)
+
+
+barplot(rbind(f19,s19,t19,p19),width=5 ,beside = T, names.arg = c("AlphaTauri","Ferrari","McLaren","Mercedes","Red Bull"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2019",
+        xlab="Constructor Teams")
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(3,15,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2020
+
+table(DB2020$Team[DB2020$positionText==1])
+table(DB2020$Team[DB2020$positionText==2])
+table(DB2020$Team[DB2020$positionText==3])
+
+table(DB2020$Team[DB2020$quali_position==1])
+
+f20=c(1,0,1,0,0,13,2)
+s20=c(0,1,1,1,1,7,6)
+t20=c(0,2,2,2,1,5,5)
+p20=c(0,0,1,0,0,15,1)
+
+
+barplot(rbind(f20,s20,t20,p20),width=7 ,beside = T, names.arg = c("AlphaTauri","Alpine Team","Aston Martin","Ferrari","McLaren","Mercedes","Red Bull"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2020",
+        xlab="Constructor Teams",cex.names = 0.7)
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(17,15,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+#2021
+
+table(DB2021$Team[DB2021$positionText==1])
+table(DB2021$Team[DB2021$positionText==2])
+table(DB2021$Team[DB2021$positionText==3])
+
+table(DB2021$Team[DB2021$quali_position==1])
+
+f21=c(0,1,0,0,1,9,11,0)
+s21=c(0,0,1,2,1,9,8,1)
+t21=c(1,1,0,3,3,10,4,0)
+p21=c(0,0,0,2,1,11,8,0)
+
+barplot(rbind(f21,s21,t21,p21),width=8 ,beside = T, names.arg = c("AlphaTauri","Alpine Team","Aston Martin","Ferrari","McLaren","Mercedes","Red Bull","Williams"), col = c("Gold","Grey","Brown","Blue"), main="Placement in races and pole positions in 2021",
+        xlab="Constructor Teams",cex.names = 0.6)
+leg.txta =c("First place","Second place","Third place","Pole position")
+legend(17,9,leg.txta,lty=1, bty="n", col =c("Gold","Grey","Brown","Blue"), lwd = 6 ,seg.len = 0.3)
+
+```
+
+
+### Splitting the dataset
+
+Now we have our complete dataset. And we will split it in Train and Test set in order to perform our prediction. 
+We will consider in the train set all the races between 2014 and 2020, while our test set will be the year 2021.
+
+```{r}
+#Creating a dataset just with the variables we are interested in
+dati1<-data.frame(dati$raceId,dati$DNF,dati$positionText,dati$year,dati$Driver,dati$quali_position,dati$fastestLapTime,dati$fastestLapSpeed , dati$Team,dati$driver_nationality,dati$circuitRef,dati$lat,dati$lng,dati$alt)
+
+dati1$tasso_win<- dati$tasso_win
+dati1$tasso_DNF<-dati$tasso_DNF
+dati1$dati.fastestLapTime<-as.numeric(dati1$dati.fastestLapTime)
+dati1$tasso_DNF<-as.numeric(dati1$tasso_DNF)
+dati1$tasso_win<-as.numeric(dati1$tasso_win)
+
+##Considering only the active drivers
+dati1<-subset(dati1,dati.Driver=="Alonso" | dati.Driver=="Bottas" | dati.Driver=="Gasly" | dati.Driver=="Giovinazzi" | dati.Driver=="Hamilton" | dati.Driver=="Kubica" | dati.Driver=="Latifi" | dati.Driver=="Leclerc" | dati.Driver=="Norris" | dati.Driver=="Ocon" | dati.Driver=="Pérez" | dati.Driver=="Räikkönen" | dati.Driver=="Ricciardo" | dati.Driver=="Russell" | dati.Driver=="Sainz" | dati.Driver=="Stroll" | dati.Driver=="Verstappen" | dati.Driver=="Vettel")
+
+##Considering just the active circuits 
+dati1<- subset(dati1, dati.circuitRef=="americas" | dati.circuitRef=="bahrain" | dati.circuitRef=="baku" | dati.circuitRef=="catalunya" | dati.circuitRef=="hungaroring" | dati.circuitRef=="imola" | dati.circuitRef=="interlagos" | dati.circuitRef=="istanbul" | dati.circuitRef=="monaco" | dati.circuitRef=="monza" | dati.circuitRef=="portimao" | dati.circuitRef=="red_bull_ring" | dati.circuitRef=="ricard" | dati.circuitRef=="rodriguez" | dati.circuitRef=="silverstone" | dati.circuitRef=="sochi" | dati.circuitRef=="spa" | dati.circuitRef=="yas_marina")
+
+##Considering just the active circuits 
+dati1<-subset(dati1, dati.Team!="Marussia")
+
+
+```
+
+
+```{r}
+#Creation of the variable TASSO_DNF which is the percentage of DNF of each team
+#in each race.
+
+cumulata_gare_scuderia_2014_2021<- data.frame(table(dati1$dati.Team))
+cumulata_gare_scuderia_2014_2021$Freq<-0
+
+cumulata_DNF_scuderia_2014_2021<- data.frame(table(dati1$dati.Team))
+cumulata_DNF_scuderia_2014_2021$Freq<-0
+
+race_id<-data.frame(table(dati1$dati.raceId))
+
+tasso_DNF_scuderia<-list()
+scuderia<-list()
+race<-list()
+for (i in race_id$Var1) {
+  for (j in cumulata_DNF_scuderia_2014_2021$Var1) {
+    perc<- (cumulata_DNF_scuderia_2014_2021$Freq[cumulata_DNF_scuderia_2014_2021$Var1==j]/cumulata_gare_scuderia_2014_2021$Freq[cumulata_gare_scuderia_2014_2021$Var1==j])*100
+    tasso_DNF_scuderia<-append(tasso_DNF_scuderia,perc)
+    scuderia<-append(scuderia,j)
+    race<-append(race,i)
+    cumulata_gare_scuderia_2014_2021$Freq[cumulata_gare_scuderia_2014_2021$Var1==j]<-cumulata_gare_scuderia_2014_2021$Freq[cumulata_gare_scuderia_2014_2021$Var1==j]+2
+    cumulata_DNF_scuderia_2014_2021$Freq[cumulata_DNF_scuderia_2014_2021$Var1==j]<-cumulata_DNF_scuderia_2014_2021$Freq[cumulata_DNF_scuderia_2014_2021$Var1==j]+sum(dati1$dati.DNF[dati1$dati.Team==j & dati1$dati.raceId==i])
+  }
+  
+}
+
+tasso_DNF_scuderia<-as.numeric(tasso_DNF_scuderia)
+scuderia<-as.character(scuderia)
+race<-as.numeric(race)
+tasso_DNF_scuderia.data<-data.frame(race,scuderia,tasso_DNF_scuderia)
+tasso_DNF_scuderia.data$tasso_DNF_scuderia[tasso_DNF_scuderia.data$tasso_DNF_scuderia=="NaN"]<-0
+
+tasso_DNF_scuderia_def<- list()
+for (i in 1:nrow(dati1)) {
+  tasso_DNF_scuderia_def<-append(tasso_DNF_scuderia_def,tasso_DNF_scuderia.data$tasso_DNF_scuderia[tasso_DNF_scuderia.data$race==dati1$dati.raceId[i] & tasso_DNF_scuderia.data$scuderia==dati1$dati.Team[i]])
+  
+}
+tasso_DNF_scuderia_def<-as.numeric(tasso_DNF_scuderia_def)
+dati1$tasso_DNF_scuderia<-tasso_DNF_scuderia_def
+
+
+```
+
+
+```{r}
+#SPLITTING IN TRAIN E TEST
+## Training set with all the observation before 2021
+train<-subset(dati1, dati.year<2021)
+
+## For the test just the 2021 races
+test<- subset(dati1, dati.year==2021)
+
+## Excluding the drivers and circuits that...
+test1<-subset(test, dati.Driver!= "Mazepin" & dati.Driver!= "Schumacher" & dati.Driver!= "Tsunoda" & dati.circuitRef!= "jeddah" & dati.circuitRef!= "losail" & dati.circuitRef!= "zandvoort" )
+#test1$dati.Driver = as.factor(test1$dati.Driver)
+#test1$dati.Team = as.factor(test1$dati.Team)
+
+## Test Set
+test2<-test1[,-1]
+
+```
+
+
+### Setting the target variable to predict
+As cited before, the aim of the project is to predict the podiums, the 4-10 and 11-20 positions, so we proceed by encoding the target variable in such a way. 
+```{r warning=FALSE}
+#Encoding of the target variable in train set
+train$dati.positionText<-as.numeric(train$dati.positionText)
+train$dati.positionText<- ifelse(train$dati.positionText<4,1,ifelse(train$dati.positionText<11,2,3))
+train$dati.positionText[is.na(train$dati.positionText)==TRUE]<-3
+
+
+#Encoding of the target variable in test set
+test1$dati.positionText<-as.numeric(test1$dati.positionText)
+test1$dati.positionText<- ifelse(test1$dati.positionText<4,1,ifelse(test1$dati.positionText<11,2,3))
+test1$dati.positionText[is.na(test1$dati.positionText)==TRUE]<-3
+```
+
+In the next step we will store the target variable and the regressors in order to clarify the notation.
+So, the target variable is the positionText variable; while the regressors are qualify position, the driver, the seconds it took the driver to complete the fastest lap, the speed of the fastest lap, the team, the circuit, the dnf ratio and the driver wins ratio.
+```{r}
+y_train = train$dati.positionText
+x_train = train[,c(3,5,6,7,8,9,11,15,16,17)]
+
+
+y_test = test1$dati.positionText
+x_test = test2[,c(2,4,5,6,7,8,10,14,15,16)]
+```
+
+Let's check if the independent variables chosen are correlated.
+
+```{r}
+x_train.1<-x_train
+
+x_train.1$dati.Driver<-as.factor(x_train.1$dati.Driver)
+x_train.1$dati.Driver<-as.numeric(x_train.1$dati.Driver)
+
+x_train.1$dati.Team<-as.factor(x_train.1$dati.Team)
+x_train.1$dati.Team<-as.numeric(x_train.1$dati.Team)
+
+x_train.1$dati.circuitRef<-as.factor(x_train.1$dati.circuitRef)
+x_train.1$dati.circuitRef<-as.numeric(x_train.1$dati.circuitRef)
+
+x_train.1$dati.fastestLapTime[is.na(x_train.1$dati.fastestLapTime)==TRUE]<- mean(x_train.1$dati.fastestLapTime[is.na(x_train.1$dati.fastestLapTime)==FALSE])
+x_train.1$dati.fastestLapSpeed[is.na(x_train.1$dati.fastestLapSpeed)==TRUE]<- mean(x_train.1$dati.fastestLapSpeed[is.na(x_train.1$dati.fastestLapSpeed)==FALSE])
+
+d<-round(cor(x_train.1),2)
+
+library(reshape2)
+melted_cormat <- melt(d)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+
+ggheatmap + 
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(1.55, 0.7),
+    legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5))
+
+
+library(ggplot2)
+ggheatmap + 
+  geom_text(aes(x_train.1, label = value), color = "black", size = 4) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.6, 0.7),
+    legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5))
+```
+
+
+
+### Models
+```{r warning=FALSE,results='hide',message=FALSE}
+require(foreign)
+require(ggplot2)
+require(MASS)
+require(Hmisc)
+require(reshape2)
+library(Metrics)
+```
+
+```{r warning=FALSE}
+## ORDERED LOGISTIC REGRESSION
+m <- polr(as.factor(dati.positionText) ~. , data = x_train, Hess=TRUE)
+c<-data.frame(x_test)
+pred<-predict(m,c)
+predd<- data.frame(y_test,pred)
+table(y_test,pred)
+library(Metrics)
+rmse_olr<-rmse(as.numeric(predd$y_test[is.na(predd$pred)==FALSE]),as.numeric(predd$pred[is.na(predd$pred)==FALSE]))
+rmse_olr
+
+results <- list()
+results <- append(results, rmse_olr)
+```
+
+
+```{r warning=FALSE}
+#LOGISTIC REGRESSION DI TIPO LOGIT
+m.1<- glm(as.factor(dati.positionText) ~. ,data = x_train,family=binomial(link="logit"))
+c.1<-x_test
+pred.1<-predict(m.1,c.1)
+predd.1<- data.frame(y_test,pred.1)
+rmse_lrl<-rmse(as.numeric(predd.1$y_test[is.na(predd.1$pred.1)==FALSE]),as.numeric(predd.1$pred.1[is.na(predd.1$pred.1)==FALSE]))
+rmse_lrl
+
+results <- append(results, rmse_lrl)
+```
+
+
+```{r warning=FALSE}
+#LOGISTIC REGRESSION DI TIPO PROBIT
+m.2<- glm(as.factor(dati.positionText) ~. ,data = x_train,family=binomial(link="probit"))
+c.2<-x_test
+pred.2<-predict(m.2,c.2)
+predd.2<- data.frame(y_test,pred.2)
+rmse_lrp<-rmse(as.numeric(predd.2$y_test[is.na(predd.2$pred.2)==FALSE]),as.numeric(predd.2$pred.2[is.na(predd.2$pred.2)==FALSE]))
+rmse_lrp
+
+results <- append(results, rmse_lrp)
+```
+
+```{r warning=FALSE, message=FALSE}
+#RANDOM FOREST
+library(randomForest)
+library(caret)
+rf <- randomForest(as.factor(dati.positionText) ~. , data = x_train, proximity = TRUE, na.action=na.exclude)
+print(rf)
+
+
+##prediction on test set
+p3 <- predict(rf, x_test)
+predd.3<- data.frame(y_test,p3)
+rmse_rf = rmse(as.numeric(predd.3$y_test[is.na(predd.3$p3)==FALSE]),as.numeric(predd.3$p3[is.na(predd.3$p3)==FALSE]))
+rmse_rf
+
+results <- append(results, rmse_rf)
+```
+
+```{r}
+```
+
+### Comparison of the models
+```{r}
+boxplot(results)
+```
+
+
