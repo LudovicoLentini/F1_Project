@@ -1,19 +1,17 @@
 # F1_Project
-Estimation of F1 rankings using different Machine Learning Algorithms.
-
 ### Research Title
 Machine learning’s techniques to predict F1 Constructors Championship and Drivers Championship standings
 
-### Abstract
+## Abstract
 Our Statistical Learning project aims to link our shared passion for Formula 1 to our restricted statistics and machine learning knowledge. The main goal is to try to predict the winners of both the Constructor and Drivers Championship. We will focus on different techniques in order to understand which performs better according to the available data and to the variables we will take into account.
 
-## Files:
+## Folder Files:
 - *EPFL_Report_Thesis_Template-3*: Final written report about the Project
 - *F1- Analysis & Prediction* : Presentation slides 
 - *F1 Prediction* : [Html Markdown](https://htmlpreview.github.io/?https://github.com/LudovicoLentini/F1_Project/blob/main/F1-prediction.html).
 - *R scripts* folder: Data, R code and testing of different ML Algorithms.
 
-
+## Other info
 ### Main research aim & framework
 The idea of our project comes from a shared passion for the F1 races and we are interested in understanding whether our knowledge in statistics and machine learning could help us build a model able to predict F1 standings. In fact our main goal is to use some of the variables that we found on http://ergast.com/mrd/db/#csv, which is a very documented dataset containing all the information records regarding F1 weekends: Free Practice, Qualifying, Races…
 
