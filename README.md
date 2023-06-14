@@ -10,7 +10,7 @@ Our Statistical Learning project aims to link our shared passion for Formula 1 t
 ## Files:
 - *EPFL_Report_Thesis_Template-3*: Final written report about the Project
 - *F1- Analysis & Prediction* : Presentation slides 
-- *F1 Prediction* : Html Markdown, preview here: https://htmlpreview.github.io/?https://github.com/LudovicoLentini/F1_Project/blob/main/F1-prediction.html
+- *F1 Prediction* : [Html Markdown] (https://htmlpreview.github.io/?https://github.com/LudovicoLentini/F1_Project/blob/main/F1-prediction.html) 
 - *R scripts* folder: Data, R code and testing of different ML Algorithms.
 
 
