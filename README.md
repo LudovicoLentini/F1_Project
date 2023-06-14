@@ -8,7 +8,7 @@ Machine learning’s techniques to predict F1 Constructors Championship and Driv
 Our Statistical Learning project aims to link our shared passion for Formula 1 to our restricted statistics and machine learning knowledge. The main goal is to try to predict the winners of both the Constructor and Drivers Championship. We will focus on different techniques in order to understand which performs better according to the available data and to the variables we will take into account. We believe this will be a very interesting and challenging project thanks to our interests and to the difficulty that many other people encountered in similar projects.
 
 ## HTML MARKDOWN
-https://htmlpreview.github.io/?
+https://htmlpreview.github.io/?https://github.com/LudovicoLentini/F1_Project/blob/main/F1-prediction.html
 
 ### Main research aim & framework
 The idea of our project comes from a shared passion for the F1 races and we are interested in understanding whether our knowledge in statistics and machine learning could help us build a model able to predict F1 standings. In fact our main goal is to use some of the variables that we found on http://ergast.com/mrd/db/#csv, which is a very documented dataset containing all the information records regarding F1 weekends: Free Practice, Qualifying, Races…
